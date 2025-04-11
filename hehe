@@ -1,0 +1,201 @@
+def append_log(message):
+    """Thêm nội dung vào ô log và đặt trạng thái chỉ đọc."""
+    log_text.config(state=tk.NORMAL)  # Cho phép chỉnh sửa tạm thời
+    log_text.insert(tk.END, message + "\n")
+    log_text.config(state=tk.DISABLED)  # Đặt lại trạng thái chỉ đọc
+    log_text.see(tk.END)  # Cuộn xuống cuối log
+
+
+
+def test_api():
+    def run():
+        deepseek_api_url = "https://api.deepseek.com/chat/completions"
+        api_key = api_entry.get()
+        user_message = "Hello!"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_message}
+            ],
+            "stream": False
+        }
+
+        try:
+            response = requests.post(deepseek_api_url, json=payload, headers=headers)
+            if response.status_code == 200:
+                append_log("Kết nối API thành công!")
+            else:
+                return {"error": f"HTTP {response.status_code}: {response.text}"}
+        except Exception as e:
+            return {"error": str(e)}
+    thread = threading.Thread(target=run, args=())
+    thread.start()
+
+def choose_file():
+    file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+    if file_path:
+        file_input_entry.delete(0, tk.END)
+        file_input_entry.insert(0, file_path)
+        append_log(f"Đã chọn file: {file_path}")
+
+def post_to_wordpress(row_data):
+    url = row_data['URL Website']
+    username = row_data['Username']
+    password = row_data['Pass Application']
+    category_id = row_data['ID Category']
+    title = row_data['Title']
+    permalink = row_data.get('Permalink', None)
+    keywords = row_data['Keywords']
+    prompt = row_data['Promt']
+
+    # Gửi prompt đến API của DeepSeek để tạo nội dung
+    deepseek_api_url = "https://api.deepseek.com/chat/completions"  # Thay bằng URL API của DeepSeek
+    deepseek_headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_entry.get()}'  # Lấy token từ ô nhập API
+    }
+    deepseek_payload = {
+        "model": "deepseek-chat",
+        "messages": [
+          {"role": "system", "content": "You are a helpful assistant."},
+          {"role": "user", "content": prompt.replace("{{title}}", title).replace("{{keywords}}", keywords)}
+        ],
+        "stream": False
+      }
+
+    try:
+        deepseek_response = requests.post(deepseek_api_url, json=deepseek_payload, headers=deepseek_headers)
+        if deepseek_response.status_code == 200:
+            content = deepseek_response.json()['choices'][0]['message']['content']
+        else:
+            return f"Lỗi DeepSeek API: {deepseek_response.json()}", None
+    except Exception as e:
+        return f"Lỗi khi gọi DeepSeek API: {str(e)}", None
+
+    # Đăng nhập và gửi bài viết qua REST API của WordPress
+    headers = {
+        'Authorization': f'Basic {requests.auth._basic_auth_str(username, password)}',
+        'Content-Type': 'application/json'
+    }
+    post_data = {
+        'title': title,
+        'content': content,
+        'status': 'publish',
+        'categories': [category_id]
+    }
+    if permalink:
+        post_data['slug'] = permalink
+
+    try:
+        response = requests.post(f"{url}/wp-json/wp/v2/posts", json=post_data, headers=headers)
+        if response.status_code == 201:
+            post_url = response.json().get('link', '')
+            return "done", post_url
+        elif response.status_code == 401:
+            return "Lỗi Login", None
+        elif response.status_code == 400 and "categories" in response.json().get('message', ''):
+            return "Sai ID Category", None
+        else:
+            return f"Lỗi: {response.json().get('message', 'Không xác định')}", None
+    except Exception as e:
+        return f"Lỗi: {str(e)}", None
+def process_excel(file_path):
+    try:
+        wb = load_workbook(file_path)
+        sheet = wb.active
+
+        # Đọc tiêu đề cột (nếu cần kiểm tra thứ tự cột)
+        headers = [cell.value for cell in sheet[1]]
+
+        # Xác định vị trí các cột theo thứ tự
+        url_col = 0  # Cột "URL Website"
+        username_col = 1  # Cột "Username"
+        password_col = 2  # Cột "Pass Application"
+        category_id_col = 3  # Cột "ID Category"
+        title_col = 4  # Cột "Title"
+        permalink_col = 5  # Cột "Permalink"
+        keywords_col = 6  # Cột "Keywords"
+        prompt_col = 7  # Cột "Promt"
+        status_col = 8  # Cột "Status"
+        link_post_col = 9  # Cột "Link Post Successfully"
+
+        # Duyệt qua từng hàng dữ liệu
+        for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            append_log(f"Đang xử lý hàng {row_idx}...")
+
+            # Kiểm tra nếu hàng không đủ số cột
+
+            # Lấy dữ liệu từ các cột theo vị trí
+            row_data = {
+                'URL Website': row[url_col],
+                'Username': row[username_col],
+                'Pass Application': row[password_col],
+                'ID Category': row[category_id_col],
+                'Title': row[title_col],
+                'Permalink': row[permalink_col] if len(row) > permalink_col else None,
+                'Keywords': row[keywords_col],
+                'Promt': row[prompt_col]
+            }
+
+            # Kiểm tra điều kiện bắt buộc
+
+            # Gửi bài viết
+            status, post_url = post_to_wordpress(row_data)
+
+            # Ghi kết quả vào file Excel
+            sheet.cell(row=row_idx, column=status_col + 1, value=status)
+            if post_url:
+                sheet.cell(row=row_idx, column=link_post_col + 1, value=post_url)
+
+        # Lưu file Excel
+        wb.save(file_path)
+        append_log("Xử lý file Excel hoàn tất!")
+    except Exception as e:
+        append_log(f"Lỗi khi xử lý file Excel: {str(e)}")
+def start():
+    file_path = file_input_entry.get()
+    if not file_path:
+        append_log("Vui lòng chọn file Excel!")
+        return
+    append_log("Bắt đầu xử lý file Excel...")
+    thread = threading.Thread(target=process_excel, args=(file_path,))
+    thread.start()
+
+def pause():
+    append_log("Pause button clicked")
+
+def stop():
+    append_log("Stop button clicked")
+
+# Tạo cửa sổ chính
+root = tk.Tk()
+root.title("DeepSeek WordPress")
+
+# API DeepSeek
+tk.Label(root, text="API DeepSeek").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+api_entry = tk.Entry(root, width=40)
+api_entry.grid(row=0, column=1, padx=5, pady=5)
+tk.Button(root, text="Test API", command=test_api, bg="brown", fg="white").grid(row=0, column=2, padx=5, pady=5)
+
+# File Input
+tk.Label(root, text="File Input").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+file_input_entry = tk.Entry(root, width=40)
+file_input_entry.grid(row=1, column=1, padx=5, pady=5)
+tk.Button(root, text="Chọn file", command=choose_file).grid(row=1, column=2, padx=5, pady=5)
+
+# Buttons
+tk.Button(root, text="Bắt đầu", command=start, bg="green", fg="white").grid(row=2, column=0, padx=5, pady=10)
+tk.Button(root, text="Dừng", command=stop, bg="red", fg="white").grid(row=2, column=2, padx=5, pady=10)
+
+# Activity Log
+tk.Label(root, text="Nhật ký hoạt động").grid(row=3, column=0, columnspan=3, padx=5, pady=5, sticky="w")
+log_text = tk.Text(root, height=10, width=60)
+log_text.grid(row=4, column=0, columnspan=3, padx=5, pady=5)
+
+# Chạy ứng dụng
+root.mainloop()
