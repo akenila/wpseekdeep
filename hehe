@@ -67,15 +67,17 @@ def post_to_wordpress(row_data):
         ],
         "stream": False
       }
-
+    append_log(f"Đang gửi yêu cầu đến DeepSeek API với tiêu đề: {title}")
     try:
         deepseek_response = requests.post(deepseek_api_url, json=deepseek_payload, headers=deepseek_headers)
         if deepseek_response.status_code == 200:
             content = deepseek_response.json()['choices'][0]['message']['content']
         else:
+            append_log(f"Lỗi từ DeepSeek API: {deepseek_response.json()}")
             return f"Lỗi DeepSeek API: {deepseek_response.json()}", None
     except Exception as e:
         return f"Lỗi khi gọi DeepSeek API: {str(e)}", None
+    append_log(f"Đã nhận nội dung từ DeepSeek API cho tiêu đề: {title}")
 
     # Đăng nhập và gửi bài viết qua REST API của WordPress
     headers = {
@@ -90,15 +92,19 @@ def post_to_wordpress(row_data):
     }
     if permalink:
         post_data['slug'] = permalink
+    append_log(f"Đang gửi bài viết đến WordPress với tiêu đề: {title}")
 
     try:
         response = requests.post(f"{url}/wp-json/wp/v2/posts", json=post_data, headers=headers)
         if response.status_code == 201:
             post_url = response.json().get('link', '')
+            append_log(f"Bài viết đã được gửi thành công với tiêu đề: {title}")
             return "done", post_url
         elif response.status_code == 401:
+            append_log(f"Lỗi xác thực với WordPress: {response.json()}")
             return "Lỗi Login", None
         elif response.status_code == 400 and "categories" in response.json().get('message', ''):
+            append_log(f"Lỗi danh mục: {response.json()}")
             return "Sai ID Category", None
         else:
             return f"Lỗi: {response.json().get('message', 'Không xác định')}", None
@@ -151,7 +157,7 @@ def process_excel(file_path):
             sheet.cell(row=row_idx, column=status_col + 1, value=status)
             if post_url:
                 sheet.cell(row=row_idx, column=link_post_col + 1, value=post_url)
-
+            wb.save(file_path)  # Lưu file sau mỗi hàng để tránh mất dữ liệu nếu có lỗi
         # Lưu file Excel
         wb.save(file_path)
         append_log("Xử lý file Excel hoàn tất!")
