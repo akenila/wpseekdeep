@@ -78,10 +78,9 @@ def post_to_wordpress(row_data):
     except Exception as e:
         return f"Lỗi khi gọi DeepSeek API: {str(e)}", None
     append_log(f"Đã nhận nội dung từ DeepSeek API cho tiêu đề: {title}")
-
+    from requests.auth import HTTPBasicAuth
     # Đăng nhập và gửi bài viết qua REST API của WordPress
     headers = {
-        'Authorization': f'Basic {requests.auth._basic_auth_str(username, password)}',
         'Content-Type': 'application/json'
     }
     post_data = {
@@ -95,11 +94,11 @@ def post_to_wordpress(row_data):
     append_log(f"Đang gửi bài viết đến WordPress với tiêu đề: {title}")
 
     try:
-        response = requests.post(f"{url}/wp-json/wp/v2/posts", json=post_data, headers=headers)
+        response = requests.post(f"{url}/wp-json/wp/v2/posts", json=post_data, headers=headers, auth=HTTPBasicAuth(username, password))
         if response.status_code == 201:
             post_url = response.json().get('link', '')
             append_log(f"Bài viết đã được gửi thành công với tiêu đề: {title}")
-            return "done", post_url
+            return "Đăng thành công", post_url
         elif response.status_code == 401:
             append_log(f"Lỗi xác thực với WordPress: {response.json()}")
             return "Lỗi Login", None
